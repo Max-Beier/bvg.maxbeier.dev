@@ -1,0 +1,23 @@
+---
+import BerlinMap from "../components/Bvg/BerlinMap";
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+  </head><description></description>
+  <title>BVG Map</title>
+
+  <body>
+    <main
+      class="w-screen h-screen flex justify-center items-center bg-transparent overflow-hidden select-none"
+    >
+      <BerlinMap client:only />
+    </main>
+  </body>
+
+
+</html>

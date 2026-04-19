@@ -1,0 +1,10 @@
+{
+  "extends": "astro/tsconfigs/base",
+  "compilerOptions": {
+    "strictNullChecks": true,
+    "allowJs": true,
+    "baseUrl": "D:/Projects/maxbeier.dev",
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js"
+  }
+}
