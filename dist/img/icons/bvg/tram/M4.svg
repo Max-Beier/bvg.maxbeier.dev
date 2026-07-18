@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" id="Ebene_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+	 width="445.133px" height="267.387px" viewBox="0 0 445.133 267.387" enable-background="new 0 0 445.133 267.387"
+	 xml:space="preserve">
+<polygon fill="#CA1214" points="0.002,267.387 445.639,267.387 445.124,0.023 -0.514,0.023 "/>
+<polygon fill="#FFFFFF" points="206.525,211.77 206.525,87.26 206.091,87.26 169.954,211.77 148.412,211.77 114.079,87.26 
+	113.645,87.26 113.645,211.77 84.02,211.77 84.02,55.131 133.617,55.131 160.068,162.641 160.536,162.641 188.591,55.131 
+	236.584,55.131 236.584,211.77 "/>
+<path fill="#FFFFFF" d="M351.241,180.575v31.194H320.95v-31.194h-56.545v-30.092L316.04,55.13h35.201v101.666h16.398v23.779H351.241
+	L351.241,180.575z M320.95,87.661h-0.436l-34.334,69.134h34.77V87.661z"/>
+</svg>
