@@ -331,10 +331,26 @@ const BerlinMap = () => {
     apply(j.movements);
   };
 
+  const COLORS = {
+    blue: "#3B82F6",
+    pink: "#E8577A",
+    yellow: "#F0D020",
+    green: "#40C072",
+    dark: "#1A1A1A",
+  };
+
+  const btnBase =
+    "font-family:system-ui,-apple-system,sans-serif;" +
+    "font-weight:900;font-size:18px;line-height:1;border:none;cursor:pointer;" +
+    "width:44px;height:44px;display:flex;align-items:center;justify-content:center;" +
+    "transition:background-color .15s,color .15s,transform .1s;";
+
   onMount(() => {
     mapInstance = L.map("map", {
       center: [52.5162, 13.3777],
       zoom: 12,
+      zoomControl: false,
+      attributionControl: true,
     });
 
     tileLayer = L.tileLayer(TILE_LAYERS[currentStyle], {
@@ -342,20 +358,93 @@ const BerlinMap = () => {
       attribution: TILE_ATTR,
     }).addTo(mapInstance);
 
-    // Style-Toggle
+    // Hide Leaflet attribution
+    mapInstance.attributionControl?.remove();
+
+    const container = mapInstance.getContainer();
+    container.style.position = "relative";
+
+    // Zoom controls — bold maxbeier.dev style with 4 accent colors
+    const zoomWrap = document.createElement("div");
+    zoomWrap.style.cssText =
+      "position:absolute;top:16px;left:16px;z-index:1000;display:flex;flex-direction:column;gap:2px;";
+
+    const makeColorBtn = (
+      label: string,
+      bg: string,
+      color: string,
+      hoverBg: string,
+      borderRadius: string,
+      onClick: () => void,
+    ) => {
+      const btn = document.createElement("button");
+      btn.textContent = label;
+      btn.style.cssText = btnBase + `background:${bg};color:${color};border-radius:${borderRadius};`;
+      btn.addEventListener("mouseenter", () => {
+        btn.style.backgroundColor = hoverBg;
+        btn.style.transform = "scale(1.05)";
+      });
+      btn.addEventListener("mouseleave", () => {
+        btn.style.backgroundColor = bg;
+        btn.style.transform = "scale(1)";
+      });
+      btn.addEventListener("click", () => {
+        btn.style.transform = "scale(0.95)";
+        setTimeout(() => (btn.style.transform = "scale(1)"), 100);
+        onClick();
+      });
+      return btn;
+    };
+
+    const zoomInBtn = makeColorBtn("+", COLORS.blue, "#fff", COLORS.dark, "22px 22px 0 0", () => mapInstance.zoomIn());
+    const zoomOutBtn = makeColorBtn("−", COLORS.pink, "#fff", COLORS.dark, "0 0 22px 22px", () => mapInstance.zoomOut());
+    zoomWrap.appendChild(zoomInBtn);
+    zoomWrap.appendChild(zoomOutBtn);
+    container.appendChild(zoomWrap);
+
+    // Style-Toggle — custom SVG sun/moon with flip animation
     const styleBtn = document.createElement("button");
-    styleBtn.textContent = "\u2600\uFE0F"; // sun
-    styleBtn.style.cssText =
-      "position:absolute;top:10px;right:10px;z-index:1000;" +
-      "background:rgba(0,0,0,0.6);color:white;border:1px solid rgba(255,255,255,0.2);" +
-      "border-radius:8px;width:36px;height:36px;font-size:18px;cursor:pointer;" +
-      "backdrop-filter:blur(4px);";
-    styleBtn.addEventListener("click", () => {
-      const next = currentStyle === "dark" ? "light" : "dark";
-      setMapStyle(next);
-      styleBtn.textContent = next === "dark" ? "\u2600\uFE0F" : "\uD83C\uDF19";
+    styleBtn.style.cssText = btnBase + "position:absolute;top:16px;right:16px;z-index:1000;background:" + COLORS.yellow + ";color:" + COLORS.dark + ";border-radius:22px;overflow:hidden;";
+    styleBtn.innerHTML = "";
+
+    const sunSvg = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="6.34" y2="6.34"/><line x1="17.66" y1="17.66" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="6.34" y2="17.66"/><line x1="17.66" y1="6.34" x2="19.78" y2="4.22"/></svg>`;
+    const moonSvg = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
+
+    let isDark = currentStyle === "dark";
+    const iconEl = document.createElement("span");
+    iconEl.style.cssText = "display:inline-block;transition:transform .3s cubic-bezier(.4,0,.2,1),opacity .2s;";
+    iconEl.innerHTML = isDark ? sunSvg : moonSvg;
+    styleBtn.appendChild(iconEl);
+
+    const updateIcon = (dark: boolean) => {
+      iconEl.style.transform = "rotate(-90deg)";
+      iconEl.style.opacity = "0";
+      setTimeout(() => {
+        iconEl.innerHTML = dark ? sunSvg : moonSvg;
+        iconEl.style.transform = "rotate(0deg)";
+        iconEl.style.opacity = "1";
+      }, 150);
+    };
+
+    styleBtn.addEventListener("mouseenter", () => {
+      styleBtn.style.backgroundColor = COLORS.dark;
+      styleBtn.style.color = COLORS.yellow;
+      iconEl.style.transform = "rotate(10deg) scale(1.1)";
     });
-    mapInstance.getContainer().appendChild(styleBtn);
+    styleBtn.addEventListener("mouseleave", () => {
+      styleBtn.style.backgroundColor = COLORS.yellow;
+      styleBtn.style.color = COLORS.dark;
+      iconEl.style.transform = "rotate(0deg) scale(1)";
+    });
+    styleBtn.addEventListener("click", () => {
+      styleBtn.style.transform = "scale(0.95)";
+      setTimeout(() => (styleBtn.style.transform = "scale(1)"), 100);
+      isDark = !isDark;
+      const next = isDark ? "dark" : "light";
+      setMapStyle(next);
+      updateIcon(isDark);
+    });
+    container.appendChild(styleBtn);
 
     pullData();
     const iv = setInterval(pullData, 12_000);
@@ -364,6 +453,7 @@ const BerlinMap = () => {
       clearInterval(iv);
       if (rafId != null) cancelAnimationFrame(rafId);
       styleBtn.remove();
+      zoomWrap.remove();
       states.forEach((s) => {
         if (s.trail) s.trail.remove();
       });
