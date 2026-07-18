@@ -37,7 +37,8 @@ const PRODUCT_COLORS: Record<string, string> = {
 
 const TILE_LAYERS = {
   dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-  light: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+  light:
+    "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
 };
 
 const TILE_ATTR =
@@ -59,11 +60,20 @@ const BerlinMap = () => {
     if (c) return c;
     let url: string;
     switch (product) {
-      case "bus": url = "img/icons/bvg/bus.svg"; break;
-      case "ferry": url = "img/icons/bvg/ferry.svg"; break;
-      case "express": url = "img/icons/bvg/express.svg"; break;
-      case "regional": url = "img/icons/bvg/regional.svg"; break;
-      default: url = `img/icons/bvg/${product}/${name}.svg`;
+      case "bus":
+        url = "img/icons/bvg/bus.svg";
+        break;
+      case "ferry":
+        url = "img/icons/bvg/ferry.svg";
+        break;
+      case "express":
+        url = "img/icons/bvg/express.svg";
+        break;
+      case "regional":
+        url = "img/icons/bvg/regional.svg";
+        break;
+      default:
+        url = `img/icons/bvg/${product}/${name}.svg`;
     }
     const i = icon({
       iconUrl: url,
@@ -79,11 +89,7 @@ const BerlinMap = () => {
     return PRODUCT_COLORS[product] || "#888888";
   };
 
-  const posAt = (
-    pts: LatLng[],
-    times: number[],
-    p: number,
-  ): LatLng | null => {
+  const posAt = (pts: LatLng[], times: number[], p: number): LatLng | null => {
     if (pts.length < 2 || times.length < 2) return null;
     const t = Math.max(0, Math.min(1, p));
     const pt = times[0] + (times[times.length - 1] - times[0]) * t;
@@ -133,11 +139,7 @@ const BerlinMap = () => {
   };
 
   // Trail fuer einen Marker erstellen/aktualisieren
-  const makeTrail = (
-    s: State,
-    pts: LatLng[],
-    color: string,
-  ): L.Polyline => {
+  const makeTrail = (s: State, pts: LatLng[], color: string): L.Polyline => {
     if (pts.length < 2) return L.polyline([]);
     // Dunkler Hintergrund -> leicht leuchtende Trails
     return L.polyline(pts, {
@@ -214,8 +216,7 @@ const BerlinMap = () => {
       const pos = posAt(s.polyline, s.frameTimes, s.progress);
       if (pos) s.marker.setLatLng(pos);
     });
-    rafId =
-      states.size > 0 ? requestAnimationFrame(loop) : null;
+    rafId = states.size > 0 ? requestAnimationFrame(loop) : null;
   };
 
   const apply = (movements: any[]) => {
@@ -224,15 +225,9 @@ const BerlinMap = () => {
     movements.forEach((m: any) => {
       const tid = m.tripId;
       ids.add(tid);
-      const loc = L.latLng(
-        m.location.latitude,
-        m.location.longitude,
-      );
+      const loc = L.latLng(m.location.latitude, m.location.longitude);
       const pts = (m.polyline?.features ?? []).map((f: any) =>
-        L.latLng(
-          f.geometry.coordinates[1],
-          f.geometry.coordinates[0],
-        ),
+        L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]),
       );
       const ft = (m.frames ?? []).map((f: any) => f.t);
       const ep = progressFrom(loc, pts);
@@ -250,8 +245,7 @@ const BerlinMap = () => {
           );
 
         const ns = calcSpeed(ft);
-        if (ns > 0 && isFinite(ns))
-          s.speed = s.speed * 0.8 + ns * 0.2;
+        if (ns > 0 && isFinite(ns)) s.speed = s.speed * 0.8 + ns * 0.2;
 
         if (same) {
           s.frameTimes = ft;
@@ -292,17 +286,13 @@ const BerlinMap = () => {
           s.trail = makeTrail(s, pts, newColor);
         }
         s.direction = m.direction;
-        s.marker.setPopupContent(
-          `<b>${m.line.name}</b><br>${m.direction}`,
-        );
+        s.marker.setPopupContent(`<b>${m.line.name}</b><br>${m.direction}`);
       } else {
         const mk = L.marker(loc, {
           icon: getIcon(m.line.product, m.line.name),
         })
           .addTo(mapInstance)
-          .bindPopup(
-            `<b>${m.line.name}</b><br>${m.direction}`,
-          );
+          .bindPopup(`<b>${m.line.name}</b><br>${m.direction}`);
         const s = make(
           tid,
           mk,
@@ -327,8 +317,7 @@ const BerlinMap = () => {
       }
     });
 
-    if (!rafId && states.size > 0)
-      rafId = requestAnimationFrame(loop);
+    if (!rafId && states.size > 0) rafId = requestAnimationFrame(loop);
   };
 
   const pullData = async () => {
@@ -364,8 +353,7 @@ const BerlinMap = () => {
     styleBtn.addEventListener("click", () => {
       const next = currentStyle === "dark" ? "light" : "dark";
       setMapStyle(next);
-      styleBtn.textContent =
-        next === "dark" ? "\u2600\uFE0F" : "\uD83C\uDF19";
+      styleBtn.textContent = next === "dark" ? "\u2600\uFE0F" : "\uD83C\uDF19";
     });
     mapInstance.getContainer().appendChild(styleBtn);
 
@@ -376,15 +364,15 @@ const BerlinMap = () => {
       clearInterval(iv);
       if (rafId != null) cancelAnimationFrame(rafId);
       styleBtn.remove();
-      states.forEach((s) => { if (s.trail) s.trail.remove(); });
+      states.forEach((s) => {
+        if (s.trail) s.trail.remove();
+      });
       mapInstance.remove();
       states.clear();
     });
   });
 
-  return (
-    <div id="map" class="w-full h-full" style="height:100vh" />
-  );
+  return <div id="map" class="w-full h-full" style="height:100vh" />;
 };
 
 export default BerlinMap;
