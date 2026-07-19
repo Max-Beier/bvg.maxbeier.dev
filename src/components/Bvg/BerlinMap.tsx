@@ -23,10 +23,13 @@ interface State {
   trailHistory: LatLng[];
   lastTrailTime: number;
   trailFade: boolean;
+  operator: string;
+  nextStopovers: any[];
+  frames: any[];
 }
 
 const LERP_MS = 1000;
-const TRAIL_FADE_MS = 15000;
+const TRAIL_FADE_MS = 8000;
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 const PRODUCT_COLORS: Record<string, string> = {
@@ -58,26 +61,27 @@ const BerlinMap = () => {
   let currentStyle: MapStyle = "dark";
   let tileLayer!: L.TileLayer;
 
+  // Info panel
+  let infoPanel: HTMLDivElement | null = null;
+  let infoPanelTarget: State | null = null;
+  let infoPanelVisible = false;
+  let infoFollowState: State | null = null;
+
+  // Geolocation
+  let locationMarker: L.Marker | null = null;
+  let locationCircle: L.CircleMarker | null = null;
+
   const getIcon = (product: string, name: string) => {
     const key = `${product}/${name}`;
     const c = iconCache.get(key);
     if (c) return c;
     let url: string;
     switch (product) {
-      case "bus":
-        url = "img/icons/bvg/bus.svg";
-        break;
-      case "ferry":
-        url = "img/icons/bvg/ferry.svg";
-        break;
-      case "express":
-        url = "img/icons/bvg/express.svg";
-        break;
-      case "regional":
-        url = "img/icons/bvg/regional.svg";
-        break;
-      default:
-        url = `img/icons/bvg/${product}/${name}.svg`;
+      case "bus": url = "img/icons/bvg/bus.svg"; break;
+      case "ferry": url = "img/icons/bvg/ferry.svg"; break;
+      case "express": url = "img/icons/bvg/express.svg"; break;
+      case "regional": url = "img/icons/bvg/regional.svg"; break;
+      default: url = `img/icons/bvg/${product}/${name}.svg`;
     }
     const i = icon({
       iconUrl: url,
@@ -91,6 +95,25 @@ const BerlinMap = () => {
 
   const getTrailColor = (product: string): string => {
     return PRODUCT_COLORS[product] || "#888888";
+  };
+
+  const productLabel = (prod: string): string => {
+    const labels: Record<string, string> = {
+      subway: "U-Bahn", suburban: "S-Bahn", tram: "Tram", bus: "Bus",
+      ferry: "Fähre", express: "Fernzug", regional: "Regional",
+    };
+    return labels[prod] ?? prod;
+  };
+
+  const fmtTime = (iso: string | null): string => {
+    if (!iso) return "--";
+    const d = new Date(iso);
+    return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  };
+
+  const fmtDelay = (sec: number | null): string => {
+    if (!sec || sec <= 0) return "";
+    return `+${Math.round(sec / 60)} min`;
   };
 
   const posAt = (pts: LatLng[], times: number[], p: number): LatLng | null => {
@@ -113,7 +136,6 @@ const BerlinMap = () => {
     return dur > 0 ? 1 / dur : 0;
   };
 
-  // Gesamtlänge des Polyline berechnen (meters, annähernd)
   const pathLength = (pts: LatLng[]): number => {
     let total = 0;
     for (let i = 1; i < pts.length; i++) {
@@ -122,7 +144,6 @@ const BerlinMap = () => {
     return total;
   };
 
-  // progress (0..1) basierend auf tatsächlicher Wegstrecke
   const progressFrom = (loc: LatLng, pts: LatLng[]): number => {
     if (pts.length < 2) return 0;
     const totalLen = pathLength(pts);
@@ -139,48 +160,22 @@ const BerlinMap = () => {
     return 1;
   };
 
-  // Trail fuer einen Marker erstellen/aktualisieren
   const makeTrail = (_s: State, pts: LatLng[], color: string): L.Polyline => {
-    const trail = L.polyline(pts, {
-      color,
-      weight: 3,
-      opacity: 0.6,
-      lineCap: "round",
-      lineJoin: "round",
+    return L.polyline(pts, {
+      color, weight: 3, opacity: 0.6, lineCap: "round", lineJoin: "round",
     }).addTo(mapInstance);
-    return trail;
   };
 
   const make = (
-    tid: string,
-    mk: L.Marker,
-    prod: string,
-    nm: string,
-    dir: string,
-    pts: LatLng[],
-    ft: number[],
-    p: number,
+    tid: string, mk: L.Marker, prod: string, nm: string, dir: string,
+    pts: LatLng[], ft: number[], p: number,
   ): State => ({
-    tripId: tid,
-    marker: mk,
-    lineProduct: prod,
-    lineName: nm,
-    direction: dir,
-    polyline: pts,
-    frameTimes: ft,
-    progress: p,
-    speed: calcSpeed(ft),
-    lerping: false,
-    lerpStart: 0,
-    lerpFromLat: 0,
-    lerpFromLng: 0,
-    lerpToLat: 0,
-    lerpToLng: 0,
-    apiProgress: p,
-    trail: null,
-    trailHistory: [],
-    lastTrailTime: 0,
-    trailFade: true,
+    tripId: tid, marker: mk, lineProduct: prod, lineName: nm, direction: dir,
+    polyline: pts, frameTimes: ft, progress: p, speed: calcSpeed(ft),
+    lerping: false, lerpStart: 0, lerpFromLat: 0, lerpFromLng: 0,
+    lerpToLat: 0, lerpToLng: 0, apiProgress: p, trail: null,
+    trailHistory: [], lastTrailTime: 0, trailFade: true,
+    operator: "", nextStopovers: [], frames: [],
   });
 
   const setMapStyle = (style: MapStyle) => {
@@ -191,6 +186,144 @@ const BerlinMap = () => {
     states.forEach((s) => {
       if (s.trail) s.trail.setStyle({ opacity: op });
     });
+  };
+
+  const createLocationMarker = () => {
+    const locIcon = L.divIcon({
+      className: "", iconSize: [16, 16], iconAnchor: [8, 8],
+      html: `<div style="width:16px;height:16px;border-radius:50%;background:#3B82F6;border:3px solid #fff;box-shadow:0 0 8px rgba(59,130,246,0.6);"></div>`,
+    });
+    locationMarker = L.marker([0, 0], { icon: locIcon, zIndexOffset: 1000 }).addTo(mapInstance);
+    locationMarker.setOpacity(0);
+    locationCircle = L.circleMarker([0, 0], {
+      radius: 12, color: "#3B82F6", fillColor: "#3B82F6", fillOpacity: 0.15, weight: 0, interactive: false,
+    }).addTo(mapInstance);
+    locationCircle.setStyle({ fillOpacity: 0, opacity: 0 });
+    if (navigator.geolocation) navigator.geolocation.watchPosition(updateLocation);
+  };
+
+  const updateLocation = (pos: GeolocationPosition) => {
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    const latlng: L.LatLngExpression = [lat, lng];
+    if (locationMarker) locationMarker.setLatLng(latlng);
+    if (locationCircle) locationCircle.setLatLng(latlng);
+    if (pos.coords.accuracy) {
+      locationCircle?.setRadius(Math.min(pos.coords.accuracy / 10, 30));
+    }
+  };
+
+  // Info panel logic
+  const openInfoPanel = (s: State) => {
+    if (!infoPanel || !mapInstance) return;
+
+    infoPanelTarget = s;
+    infoPanelVisible = true;
+    // Follow nicht stoppen wenn man ein anderes Fahrzeug anklickt
+
+    const color = getTrailColor(s.lineProduct);
+    const label = productLabel(s.lineProduct);
+    const stops = (s.nextStopovers || []).filter((st: any) => {
+      const time = st.arrival ?? st.departure;
+      if (!time) return true;
+      return new Date(time) >= new Date();
+    });
+    const frames = s.frames || [];
+    const origin = frames[0]?.origin?.name ?? "";
+    const dest = frames[0]?.destination?.name ?? "";
+
+    const stopRows = stops.slice(0, 5).map((st: any) => {
+      const name = st.stop?.name ?? "";
+      const arr = fmtTime(st.arrival ?? st.departure ?? null);
+      const delay = fmtDelay(st.arrivalDelay ?? st.departureDelay ?? 0);
+      const platform = st.arrivalPlatform ?? st.departurePlatform ?? "";
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(128,128,128,0.12);">
+        <span style="color:#fff;font-size:15px;font-weight:800;min-width:44px;">${arr}</span>
+        ${platform ? `<span style="background:rgba(255,255,255,0.1);color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:10px;">${platform}</span>` : ""}
+        <span style="color:rgba(255,255,255,0.85);font-size:13px;flex:1;">${name}</span>
+        ${delay ? `<span style="color:#E8577A;font-size:11px;font-weight:700;">${delay}</span>` : ""}
+      </div>`;
+    }).join("");
+
+    infoPanel.innerHTML = `
+      <div style="padding:18px 22px 20px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+          <span style="background:${color};color:#fff;font-size:14px;font-weight:900;padding:5px 12px;border-radius:8px;">${s.lineName}</span>
+          <span style="color:rgba(255,255,255,0.5);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">${label}</span>
+          <span style="color:rgba(255,255,255,0.35);font-size:11px;margin-left:auto;">${s.operator}</span>
+          <button class="info-close" style="width:26px;height:26px;border-radius:13px;border:none;cursor:pointer;background:rgba(255,255,255,0.1);color:#fff;font-size:15px;display:flex;align-items:center;justify-content:center;font-weight:900;line-height:1;flex-shrink:0;margin-left:6px;">&times;</button>
+        </div>
+        <div style="color:rgba(255,255,255,0.7);font-size:13px;font-weight:600;margin-bottom:12px;">
+          &rarr; ${s.direction}
+        </div>
+        ${origin || dest ? `<div style="display:flex;align-items:center;gap:8px;color:rgba(255,255,255,0.4);font-size:12px;font-weight:600;margin-bottom:14px;">
+          <span>${origin}</span><span style="color:rgba(255,255,255,0.15);">—</span><span>${dest}</span>
+        </div>` : ""}
+        ${stopRows ? `
+          <div style="color:rgba(255,255,255,0.35);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Next stops</div>
+          ${stopRows}
+        ` : ""}
+        <button class="info-follow" style="width:100%;margin-top:14px;padding:10px 0;border-radius:10px;border:none;cursor:pointer;background:rgba(59,130,246,0.15);color:#3B82F6;font-size:13px;font-weight:800;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
+          Follow
+        </button>
+      </div>
+    `;
+
+    infoPanel.style.display = "block";
+
+    const closeBtn = infoPanel.querySelector(".info-close") as HTMLButtonElement;
+    closeBtn?.addEventListener("mouseenter", () => (closeBtn.style.backgroundColor = "rgba(255,255,255,0.2)"));
+    closeBtn?.addEventListener("mouseleave", () => (closeBtn.style.backgroundColor = "rgba(255,255,255,0.1)"));
+    closeBtn?.addEventListener("click", () => {
+      infoPanelVisible = false;
+      infoPanelTarget = null;
+      // Follow nicht stoppen — nur Panel schliessen
+      infoPanel!.style.display = "none";
+    });
+    const followBtn = infoPanel.querySelector(".info-follow") as HTMLButtonElement;
+    const updateFollowBtn = () => {
+      const following = infoFollowState === s;
+      followBtn.innerHTML = following
+        ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg> Following`
+        : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg> Follow`;
+      followBtn.style.backgroundColor = following ? "rgba(59,130,246,0.3)" : "rgba(59,130,246,0.15)";
+      followBtn.style.color = following ? "#fff" : "#3B82F6";
+    };
+    updateFollowBtn();
+    followBtn?.addEventListener("mousedown", (e) => e.stopPropagation());
+    followBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (infoFollowState === s) {
+        infoFollowState = null;
+      } else {
+        infoFollowState = s;
+        mapInstance.panTo(s.marker.getLatLng(), { noMoveStart: true });
+      }
+      updateFollowBtn();
+    });
+    followBtn?.addEventListener("mouseenter", () => (followBtn.style.backgroundColor = "rgba(59,130,246,0.25)"));
+    followBtn?.addEventListener("mouseleave", () => (followBtn.style.backgroundColor = "rgba(59,130,246,0.15)"));
+  };
+
+  const updateInfoPanelPosition = () => {
+    if (!infoPanelVisible || !infoPanelTarget || !mapInstance || !infoPanel) return;
+    const point = infoPanelTarget.marker.getLatLng();
+    const containerPoint = mapInstance.latLngToContainerPoint(point);
+    const containerRect = mapInstance.getContainer().getBoundingClientRect();
+
+    const panelW = 320;
+    const panelH = 360;
+
+    let left = containerPoint.x - panelW / 2;
+    let top = containerPoint.y - panelH - 24;
+
+    if (left < 10) left = 10;
+    if (left + panelW > containerRect.width - 10) left = containerRect.width - panelW - 10;
+    if (top < 10) top = containerPoint.y + 28;
+
+    infoPanel.style.left = left + "px";
+    infoPanel.style.top = top + "px";
   };
 
   const loop = () => {
@@ -205,11 +338,8 @@ const BerlinMap = () => {
         const lat = lerp(s.lerpFromLat, s.lerpToLat, eased);
         const lng = lerp(s.lerpFromLng, s.lerpToLng, eased);
         s.marker.setLatLng([lat, lng]);
-
-        // Trail auch waehrend lerp aufnehmen
         s.trailHistory.push(L.latLng(lat, lng));
         s.lastTrailTime = now;
-
         if (t >= 1) {
           s.progress = s.apiProgress;
           s.lerping = false;
@@ -218,7 +348,6 @@ const BerlinMap = () => {
         s.progress += s.speed * 16;
         if (s.progress > 1) s.progress -= 1;
         if (s.progress < 0) s.progress += 1;
-
         const pos = posAt(s.polyline, s.frameTimes, s.progress);
         if (pos) {
           s.marker.setLatLng(pos);
@@ -227,16 +356,12 @@ const BerlinMap = () => {
         }
       }
 
-      // Trail aktualisieren mit fade-away
       if (s.trail && s.trailHistory.length >= 2) {
-        // Begrenze auf letzte Punkte basierend auf fade-time
         const maxPts = Math.ceil(TRAIL_FADE_MS / 16);
         if (s.trailHistory.length > maxPts) {
           s.trailHistory = s.trailHistory.slice(-maxPts);
         }
         s.trail.setLatLngs(s.trailHistory);
-
-        // Opacity basierend auf Alter des Trails
         if (s.trailFade) {
           const age = now - s.lastTrailTime;
           const fade = Math.max(0, 1 - age / TRAIL_FADE_MS);
@@ -244,6 +369,27 @@ const BerlinMap = () => {
         }
       }
     });
+
+    if (infoPanelVisible) updateInfoPanelPosition();
+    // Update follow button state in panel
+    if (infoPanelVisible && infoPanelTarget && infoPanel) {
+      const fb = infoPanel.querySelector(".info-follow") as HTMLButtonElement;
+      if (fb) {
+        const following = infoFollowState === infoPanelTarget;
+        fb.innerHTML = following
+          ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg> Following`
+          : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg> Follow`;
+        fb.style.backgroundColor = following ? "rgba(59,130,246,0.3)" : "rgba(59,130,246,0.15)";
+        fb.style.color = following ? "#fff" : "#3B82F6";
+      }
+    }
+
+    // Follow vehicle
+    if (infoFollowState && mapInstance) {
+      const pt = infoFollowState.marker.getLatLng();
+      mapInstance.panTo(pt, { animate: false, noMoveStart: true });
+    }
+
     rafId = states.size > 0 ? requestAnimationFrame(loop) : null;
   };
 
@@ -282,12 +428,10 @@ const BerlinMap = () => {
           s.frameTimes = ft;
         }
 
-        // Stelle sicher dass jeder Marker einen Trail hat
         if (!s.trail) {
           s.trail = makeTrail(s, [], color);
         }
 
-        // Smooth Lerp: Marker gleitet von aktueller lat/lng zur neuen API-Position
         const cur = s.marker.getLatLng();
         const newLoc = L.latLng(m.location.latitude, m.location.longitude);
         s.lerpFromLat = cur.lat;
@@ -304,31 +448,32 @@ const BerlinMap = () => {
           s.marker.setIcon(getIcon(np, nn));
           s.lineProduct = np;
           s.lineName = nn;
-          // Farbe geaendert -> Trail neu, History bleibt
           const newColor = getTrailColor(np);
           if (s.trail) s.trail.remove();
           s.trail = makeTrail(s, s.trailHistory, newColor);
         }
         s.direction = m.direction;
-        s.marker.setPopupContent(`<b>${m.line.name}</b><br>${m.direction}`);
+        s.operator = m.line.operator?.name ?? "";
+        s.nextStopovers = m.nextStopovers ?? [];
+        s.frames = m.frames ?? [];
+        s.marker.off("click");
+        s.marker.on("click", () => openInfoPanel(s));
       } else {
         const mk = L.marker(loc, {
           icon: getIcon(m.line.product, m.line.name),
-        })
-          .addTo(mapInstance)
-          .bindPopup(`<b>${m.line.name}</b><br>${m.direction}`);
+        }).addTo(mapInstance);
+        mk.on("click", () => {
+          const s = states.get(tid);
+          if (s) openInfoPanel(s);
+        });
         const s = make(
-          tid,
-          mk,
-          m.line.product,
-          m.line.name,
-          m.direction,
-          pts,
-          ft,
-          ep,
+          tid, mk, m.line.product, m.line.name, m.direction, pts, ft, ep,
         );
         s.trail = makeTrail(s, [], color);
         s.trailHistory = [];
+        s.operator = m.line.operator?.name ?? "";
+        s.nextStopovers = m.nextStopovers ?? [];
+        s.frames = m.frames ?? [];
         states.set(tid, s);
       }
     });
@@ -370,39 +515,6 @@ const BerlinMap = () => {
     "width:44px;height:44px;display:flex;align-items:center;justify-content:center;" +
     "transition:background-color .15s,color .15s,transform .1s;";
 
-  // Geolocation marker
-  let locationMarker: L.Marker | null = null;
-  let locationCircle: L.CircleMarker | null = null;
-
-  const createLocationMarker = () => {
-    const locIcon = L.divIcon({
-      className: "",
-      iconSize: [16, 16],
-      iconAnchor: [8, 8],
-      html: `<div style="width:16px;height:16px;border-radius:50%;background:#3B82F6;border:3px solid #fff;box-shadow:0 0 8px rgba(59,130,246,0.6);"></div>`,
-    });
-    locationMarker = L.marker([0, 0], { icon: locIcon, zIndexOffset: 1000 }).addTo(mapInstance);
-    locationCircle = L.circleMarker([0, 0], {
-      radius: 12,
-      color: "#3B82F6",
-      fillColor: "#3B82F6",
-      fillOpacity: 0.15,
-      weight: 0,
-      interactive: false,
-    }).addTo(mapInstance);
-  };
-
-  const updateLocation = (pos: GeolocationPosition) => {
-    const lat = pos.coords.latitude;
-    const lng = pos.coords.longitude;
-    const latlng = [lat, lng] as L.LatLngExpression;
-    if (locationMarker) locationMarker.setLatLng(latlng);
-    if (locationCircle) locationCircle.setLatLng(latlng);
-    if (pos.coords.accuracy) {
-      locationCircle?.setRadius(Math.min(pos.coords.accuracy / 10, 30));
-    }
-  };
-
   onMount(() => {
     mapInstance = L.map("map", {
       center: [52.5162, 13.3777],
@@ -416,24 +528,19 @@ const BerlinMap = () => {
       attribution: TILE_ATTR,
     }).addTo(mapInstance);
 
-    // Hide Leaflet attribution
     mapInstance.attributionControl?.remove();
 
     const container = mapInstance.getContainer();
     container.style.position = "relative";
 
-    // Zoom controls — bold maxbeier.dev style with 4 accent colors
+    // Zoom controls
     const zoomWrap = document.createElement("div");
     zoomWrap.style.cssText =
       "position:absolute;top:16px;left:16px;z-index:1000;display:flex;flex-direction:column;gap:2px;";
 
     const makeColorBtn = (
-      label: string,
-      bg: string,
-      color: string,
-      hoverBg: string,
-      borderRadius: string,
-      onClick: () => void,
+      label: string, bg: string, color: string, hoverBg: string,
+      borderRadius: string, onClick: () => void,
     ) => {
       const btn = document.createElement("button");
       btn.textContent = label;
@@ -455,12 +562,12 @@ const BerlinMap = () => {
     };
 
     const zoomInBtn = makeColorBtn("+", COLORS.blue, "#fff", COLORS.dark, "22px 22px 0 0", () => mapInstance.zoomIn());
-    const zoomOutBtn = makeColorBtn("−", COLORS.pink, "#fff", COLORS.dark, "0 0 22px 22px", () => mapInstance.zoomOut());
+    const zoomOutBtn = makeColorBtn("\u2212", COLORS.pink, "#fff", COLORS.dark, "0 0 22px 22px", () => mapInstance.zoomOut());
     zoomWrap.appendChild(zoomInBtn);
     zoomWrap.appendChild(zoomOutBtn);
     container.appendChild(zoomWrap);
 
-    // Style-Toggle — custom SVG sun/moon with flip animation
+    // Style-Toggle
     const styleBtn = document.createElement("button");
     styleBtn.style.cssText = btnBase + "position:absolute;top:16px;right:16px;z-index:1000;background:" + COLORS.yellow + ";color:" + COLORS.dark + ";border-radius:22px;overflow:hidden;";
     styleBtn.innerHTML = "";
@@ -504,7 +611,20 @@ const BerlinMap = () => {
     });
     container.appendChild(styleBtn);
 
-    // Location button unten links
+    // Info panel overlay
+    infoPanel = document.createElement("div");
+    infoPanel.style.cssText =
+      "position:absolute;top:16px;left:50%;transform:translateX(-50%);z-index:1000;" +
+      "width:320px;max-height:80vh;overflow-y:auto;" +
+      "background:rgba(20,20,20,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);" +
+      "border:1px solid rgba(255,255,255,0.1);border-radius:16px;" +
+      "font-family:system-ui,-apple-system,sans-serif;color:#fff;" +
+      "display:none;box-shadow:0 8px 32px rgba(0,0,0,0.4);";
+    container.appendChild(infoPanel);
+    L.DomEvent.disableClickPropagation(infoPanel);
+    L.DomEvent.disableScrollPropagation(infoPanel);
+
+    // Location button
     const locOffSvg = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>`;
     const locOnSvg = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>`;
     let locActive = false;
@@ -517,25 +637,27 @@ const BerlinMap = () => {
       if (locActive) {
         locBtn.style.backgroundColor = COLORS.blue;
         locBtn.innerHTML = locOnSvg;
-        if (!locationMarker) createLocationMarker();
+        if (!locationMarker) {
+          createLocationMarker();
+        }
+        locationMarker!.setOpacity(1);
+        locationCircle?.setStyle({ fillOpacity: 0.15, opacity: 0.5 });
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(
             (pos) => {
               updateLocation(pos);
-              mapInstance.flyTo([pos.coords.latitude, pos.coords.longitude], 15, { duration: 1 });
+              if (infoFollowState) infoFollowState = null;
+              mapInstance.flyTo([pos.coords.latitude, pos.coords.longitude], 15, { duration: 2 });
             },
             () => { /* no access */ },
-            { enableHighAccuracy: true },
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
           );
-          navigator.geolocation.watchPosition(updateLocation);
         }
       } else {
         locBtn.style.backgroundColor = locOff;
         locBtn.innerHTML = locOffSvg;
-        if (locationMarker) locationMarker.remove();
-        if (locationCircle) locationCircle.remove();
-        locationMarker = null;
-        locationCircle = null;
+        if (locationMarker) locationMarker.setOpacity(0);
+        if (locationCircle) locationCircle.setStyle({ fillOpacity: 0, opacity: 0 });
       }
     };
     locBtn.addEventListener("mouseenter", () => {
@@ -556,12 +678,18 @@ const BerlinMap = () => {
     pullData();
     const iv = setInterval(pullData, 12_000);
 
+    // User pannet -> Follow stoppen
+    mapInstance.on("dragstart", () => {
+      if (infoFollowState) infoFollowState = null;
+    });
+
     onCleanup(() => {
       clearInterval(iv);
       if (rafId != null) cancelAnimationFrame(rafId);
       styleBtn.remove();
       zoomWrap.remove();
       locBtn.remove();
+      infoPanel?.remove();
       if (locationMarker) locationMarker.remove();
       if (locationCircle) locationCircle.remove();
       states.forEach((s) => {
