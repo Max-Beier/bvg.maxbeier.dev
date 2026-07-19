@@ -271,6 +271,29 @@ const BerlinMap = () => {
     `;
 
     infoPanel.style.display = "block";
+    // Re-apply responsive style on open — screen may have changed since mount
+    if (window.innerWidth < 600) {
+      infoPanel.style.position = "fixed";
+      infoPanel.style.bottom = "0";
+      infoPanel.style.left = "0";
+      infoPanel.style.right = "0";
+      infoPanel.style.top = "";
+      infoPanel.style.transform = "";
+      infoPanel.style.width = "100%";
+      infoPanel.style.maxHeight = "70vh";
+      infoPanel.style.borderRadius = "16px 16px 0 0";
+      infoPanel.style.zIndex = "1001";
+    } else {
+      infoPanel.style.position = "absolute";
+      infoPanel.style.top = "16px";
+      infoPanel.style.left = "50%";
+      infoPanel.style.transform = "translateX(-50%)";
+      infoPanel.style.bottom = "";
+      infoPanel.style.width = "320px";
+      infoPanel.style.maxHeight = "80vh";
+      infoPanel.style.borderRadius = "16px";
+      infoPanel.style.zIndex = "1000";
+    }
 
     const closeBtn = infoPanel.querySelector(".info-close") as HTMLButtonElement;
     closeBtn?.addEventListener("mouseenter", () => (closeBtn.style.backgroundColor = "rgba(255,255,255,0.2)"));
@@ -624,7 +647,8 @@ const BerlinMap = () => {
 
     // Info panel overlay
     infoPanel = document.createElement("div");
-    const applyPanelStyle = (panel: HTMLDivElement) => {
+    const applyPanelStyle = (panel: HTMLDivElement, visible?: boolean) => {
+      const display = visible ? "block" : "none";
       if (isMobile()) {
         panel.style.cssText =
           "position:fixed;bottom:0;left:0;right:0;z-index:1001;" +
@@ -632,7 +656,7 @@ const BerlinMap = () => {
           "background:rgba(20,20,20,0.96);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);" +
           "border-top:1px solid rgba(255,255,255,0.1);border-radius:16px 16px 0 0;" +
           "font-family:system-ui,-apple-system,sans-serif;color:#fff;" +
-          "display:none;box-shadow:0 -4px 24px rgba(0,0,0,0.5);" +
+          `display:${display};box-shadow:0 -4px 24px rgba(0,0,0,0.5);` +
           "padding-bottom:env(safe-area-inset-bottom);";
       } else {
         panel.style.cssText =
@@ -641,13 +665,21 @@ const BerlinMap = () => {
           "background:rgba(20,20,20,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);" +
           "border:1px solid rgba(255,255,255,0.1);border-radius:16px;" +
           "font-family:system-ui,-apple-system,sans-serif;color:#fff;" +
-          "display:none;box-shadow:0 8px 32px rgba(0,0,0,0.4);";
+          `display:${display};box-shadow:0 8px 32px rgba(0,0,0,0.4);`;
       }
     };
     applyPanelStyle(infoPanel);
     container.appendChild(infoPanel);
     L.DomEvent.disableClickPropagation(infoPanel);
     L.DomEvent.disableScrollPropagation(infoPanel);
+
+    // Re-apply panel style on resize (mobile/desktop switch)
+    window.addEventListener("resize", () => {
+      if (infoPanel) {
+        applyPanelStyle(infoPanel);
+        if (infoPanelVisible) updateInfoPanelPosition();
+      }
+    });
 
     // Location button
     const locOffSvg = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>`;
