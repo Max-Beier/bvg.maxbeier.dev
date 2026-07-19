@@ -650,7 +650,7 @@ const BerlinMap = () => {
               mapInstance.flyTo([pos.coords.latitude, pos.coords.longitude], 15, { duration: 2 });
             },
             () => { /* no access */ },
-            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+            { maximumAge: 0, timeout: 10000 },
           );
         }
       } else {
