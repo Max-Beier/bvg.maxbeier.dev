@@ -214,40 +214,40 @@ const BerlinMap = () => {
   };
 
   // Info panel logic
-  const openInfoPanel = (s: State) => {
-    if (!infoPanel || !mapInstance) return;
-
-    infoPanelTarget = s;
-    infoPanelVisible = true;
-    // Follow nicht stoppen wenn man ein anderes Fahrzeug anklickt
-
-    const color = getTrailColor(s.lineProduct);
-    const label = productLabel(s.lineProduct);
-    const stops = (s.nextStopovers || []).filter((st: any) => {
-      const time = st.arrival ?? st.departure;
-      if (!time) return true;
-      return new Date(time) >= new Date();
+  const deduplicateStops = (stops: any[]): any[] => {
+    const seen = new Set<string>();
+    return stops.filter((st: any) => {
+      const key = st.stop?.id ?? st.stop?.name ?? "";
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
     });
-    const frames = s.frames || [];
-    // Strip "(Berlin)" from origin/dest names for display
-    const stripBerlin = (name: string) => name.replace(/\s*\(Berlin\)\s*/g, "").trim();
-    const origin = stripBerlin(frames[0]?.origin?.name ?? "");
-    const dest = stripBerlin(frames[0]?.destination?.name ?? "");
+  };
 
-    // Deduplicate: remove stops that match the direction (end station) — shown as → direction
-    const uniqueStops = stops.filter((st: any) => {
-      const name = st.stop?.name ?? "";
-      return name !== s.direction;
-    });
-    // Remove last stop if it's the destination
-    if (uniqueStops.length > 0 && dest) {
-      const last = uniqueStops[uniqueStops.length - 1]?.stop?.name ?? "";
-      const lastClean = stripBerlin(last);
-      if (lastClean === dest) {
-        uniqueStops.pop();
+  const filterFutureStops = (stops: any[], dest: string): any[] => {
+    const now = new Date().getTime();
+    let result = deduplicateStops(stops);
+    // Empty + vergangen entfernen
+    result = result.filter((st: any) => {
+      if (!st.stop?.name) return false;
+      const arr = st.arrival;
+      const dep = st.departure;
+      // Wenn beide Zeiten vergangen sind -> weg
+      if (arr && dep) {
+        return new Date(arr).getTime() > now - 60_000 || new Date(dep).getTime() > now - 60_000;
       }
+      if (arr) return new Date(arr).getTime() > now - 60_000;
+      if (dep) return new Date(dep).getTime() > now - 60_000;
+      return true;
+    });
+    if (result.length > 0 && dest) {
+      const last = result[result.length - 1]?.stop?.name ?? "";
+      if (last.replace(/\s*\(Berlin\)\s*/g, "").trim() === dest) result.pop();
     }
+    return result;
+  };
 
+  const renderPanelStops = (uniqueStops: any[]) => {
     const stopRows = uniqueStops.map((st: any) => {
       const name = st.stop?.name ?? "";
       const arr = fmtTime(st.arrival ?? st.departure ?? null);
@@ -260,89 +260,110 @@ const BerlinMap = () => {
         ${delay ? `<span style="color:#E8577A;font-size:11px;font-weight:700;">${delay}</span>` : ""}
       </div>`;
     }).join("");
+    const stopsSection = stopRows ? `
+      <div style="color:rgba(255,255,255,0.35);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Next stops</div>
+      ${stopRows}
+    ` : "";
+    return stopsSection;
+  };
 
-    infoPanel.innerHTML = `
-      <div style="padding:18px 22px 20px;">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-          <span style="background:${color};color:#fff;font-size:14px;font-weight:900;padding:5px 12px;border-radius:8px;">${s.lineName}</span>
-          <span style="color:rgba(255,255,255,0.5);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">${label}</span>
-          <span style="color:rgba(255,255,255,0.35);font-size:11px;margin-left:auto;">${s.operator}</span>
-          <button class="info-close" style="width:26px;height:26px;border-radius:13px;border:none;cursor:pointer;background:rgba(255,255,255,0.1);color:#fff;font-size:15px;display:flex;align-items:center;justify-content:center;font-weight:900;line-height:1;flex-shrink:0;margin-left:6px;">&times;</button>
-        </div>
-        <div style="color:rgba(255,255,255,0.7);font-size:13px;font-weight:600;margin-bottom:6px;">
-          &rarr; ${s.direction}
-        </div>
-        ${origin || dest ? `<div style="display:flex;align-items:center;gap:8px;color:rgba(255,255,255,0.4);font-size:12px;font-weight:600;margin-bottom:14px;">
-          <span>${origin}</span><span style="color:rgba(255,255,255,0.15);">—</span><span>${dest}</span>
-        </div>` : ""}
-        ${stopRows ? `
-          <div style="color:rgba(255,255,255,0.35);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Next stops</div>
-          ${stopRows}
-        ` : ""}
-        <button class="info-follow" style="width:100%;margin-top:14px;padding:10px 0;border-radius:10px;border:none;cursor:pointer;background:rgba(59,130,246,0.15);color:#3B82F6;font-size:13px;font-weight:800;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
-          Follow
-        </button>
-      </div>
-    `;
+  const openInfoPanel = (s: State) => {
+    if (!infoPanel || !mapInstance) return;
 
-    infoPanel.style.display = "block";
-    // Re-apply responsive style on open — screen may have changed since mount
-    if (window.innerWidth < 600) {
-      infoPanel.style.position = "fixed";
-      infoPanel.style.bottom = "0";
-      infoPanel.style.left = "0";
-      infoPanel.style.right = "0";
-      infoPanel.style.top = "";
-      infoPanel.style.transform = "";
-      infoPanel.style.width = "100%";
-      infoPanel.style.maxHeight = "70vh";
-      infoPanel.style.borderRadius = "16px 16px 0 0";
-      infoPanel.style.zIndex = "1001";
-    } else {
-      infoPanel.style.position = "absolute";
-      infoPanel.style.top = "16px";
-      infoPanel.style.left = "50%";
-      infoPanel.style.transform = "translateX(-50%)";
-      infoPanel.style.bottom = "";
-      infoPanel.style.width = "320px";
-      infoPanel.style.maxHeight = "80vh";
-      infoPanel.style.borderRadius = "16px";
-      infoPanel.style.zIndex = "1000";
-    }
+    infoPanelTarget = s;
+    infoPanelVisible = true;
+    // Follow nicht stoppen wenn man ein anderes Fahrzeug anklickt
 
-    const closeBtn = infoPanel.querySelector(".info-close") as HTMLButtonElement;
-    closeBtn?.addEventListener("mouseenter", () => (closeBtn.style.backgroundColor = "rgba(255,255,255,0.2)"));
-    closeBtn?.addEventListener("mouseleave", () => (closeBtn.style.backgroundColor = "rgba(255,255,255,0.1)"));
-    closeBtn?.addEventListener("click", () => {
-      infoPanelVisible = false;
-      infoPanelTarget = null;
-      // Follow nicht stoppen — nur Panel schliessen
-      infoPanel!.style.display = "none";
-    });
-    const followBtn = infoPanel.querySelector(".info-follow") as HTMLButtonElement;
-    const updateFollowBtn = () => {
+    const color = getTrailColor(s.lineProduct);
+    const label = productLabel(s.lineProduct);
+    const frames = s.frames || [];
+    const stripBerlin = (name: string) => name.replace(/\s*\(Berlin\)\s*/g, "").trim();
+    const origin = stripBerlin(frames[0]?.origin?.name ?? "");
+    const dest = stripBerlin(frames[0]?.destination?.name ?? "");
+
+    // Fallback: render with nextStopovers immediately
+    const fallbackStops = filterFutureStops(s.nextStopovers || [], dest);
+    const renderPanel = (stops: any[]) => {
+      const panel = infoPanel!;
+      const stopsHTML = renderPanelStops(stops);
       const following = infoFollowState === s;
-      followBtn.innerHTML = following
-        ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg> Following`
-        : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg> Follow`;
-      followBtn.style.backgroundColor = following ? "rgba(59,130,246,0.3)" : "rgba(59,130,246,0.15)";
-      followBtn.style.color = following ? "#fff" : "#3B82F6";
-    };
-    updateFollowBtn();
-    followBtn?.addEventListener("mousedown", (e) => e.stopPropagation());
-    followBtn?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (infoFollowState === s) {
-        infoFollowState = null;
+      const followingSVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>`;
+      const followSVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>`;
+
+      panel.innerHTML = `
+        <div style="padding:18px 22px 20px;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+            <span style="background:${color};color:#fff;font-size:14px;font-weight:900;padding:5px 12px;border-radius:8px;">${s.lineName}</span>
+            <span style="color:rgba(255,255,255,0.5);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">${label}</span>
+            <span style="color:rgba(255,255,255,0.35);font-size:11px;margin-left:auto;">${s.operator}</span>
+            <button class="info-close" style="width:26px;height:26px;border-radius:13px;border:none;cursor:pointer;background:rgba(255,255,255,0.1);color:#fff;font-size:15px;display:flex;align-items:center;justify-content:center;font-weight:900;line-height:1;flex-shrink:0;margin-left:6px;">&times;</button>
+          </div>
+          <div style="color:rgba(255,255,255,0.7);font-size:13px;font-weight:600;margin-bottom:6px;">
+            &rarr; ${s.direction}
+          </div>
+          ${origin || dest ? `<div style="display:flex;align-items:center;gap:8px;color:rgba(255,255,255,0.4);font-size:12px;font-weight:600;margin-bottom:14px;">
+            <span>${origin}</span><span style="color:rgba(255,255,255,0.15);">—</span><span>${dest}</span>
+          </div>` : ""}
+          ${stopsHTML}
+          <button class="info-follow" style="width:100%;margin-top:14px;padding:10px 0;border-radius:10px;border:none;cursor:pointer;background:${following ? "rgba(59,130,246,0.3)" : "rgba(59,130,246,0.15)"};color:${following ? "#fff" : "#3B82F6"};font-size:13px;font-weight:800;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;">
+            ${following ? followingSVG : followSVG} ${following ? "Following" : "Follow"}
+          </button>
+        </div>
+      `;
+
+      // Re-apply responsive style
+      panel.style.display = "block";
+      if (window.innerWidth < 600) {
+        panel.style.position = "fixed";
+        panel.style.bottom = "0";
+        panel.style.left = "0";
+        panel.style.right = "0";
+        panel.style.top = "";
+        panel.style.transform = "";
+        panel.style.width = "100%";
+        panel.style.maxHeight = "70vh";
+        panel.style.borderRadius = "16px 16px 0 0";
+        panel.style.zIndex = "1001";
       } else {
-        infoFollowState = s;
-        mapInstance.panTo(s.marker.getLatLng(), { noMoveStart: true });
+        panel.style.position = "absolute";
+        panel.style.top = "16px";
+        panel.style.left = "50%";
+        panel.style.transform = "translateX(-50%)";
+        panel.style.bottom = "";
+        panel.style.width = "320px";
+        panel.style.maxHeight = "80vh";
+        panel.style.borderRadius = "16px";
+        panel.style.zIndex = "1000";
       }
-      updateFollowBtn();
-    });
-    followBtn?.addEventListener("mouseenter", () => (followBtn.style.backgroundColor = "rgba(59,130,246,0.25)"));
-    followBtn?.addEventListener("mouseleave", () => (followBtn.style.backgroundColor = "rgba(59,130,246,0.15)"));
+
+      // Bind close button
+      const closeBtn = panel.querySelector(".info-close") as HTMLButtonElement;
+      closeBtn?.addEventListener("mouseenter", () => (closeBtn.style.backgroundColor = "rgba(255,255,255,0.2)"));
+      closeBtn?.addEventListener("mouseleave", () => (closeBtn.style.backgroundColor = "rgba(255,255,255,0.1)"));
+      closeBtn?.addEventListener("click", () => {
+        infoPanelVisible = false;
+        infoPanelTarget = null;
+        infoPanel!.style.display = "none";
+      });
+
+      // Bind follow button
+      const followBtn = panel.querySelector(".info-follow") as HTMLButtonElement;
+      followBtn?.addEventListener("mousedown", (e) => e.stopPropagation());
+      followBtn?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (infoFollowState === s) {
+          infoFollowState = null;
+        } else {
+          infoFollowState = s;
+          mapInstance.panTo(s.marker.getLatLng(), { noMoveStart: true });
+        }
+        openInfoPanel(s); // Re-render to update button state
+      });
+      followBtn?.addEventListener("mouseenter", () => (followBtn.style.backgroundColor = "rgba(59,130,246,0.25)"));
+      followBtn?.addEventListener("mouseleave", () => (followBtn.style.backgroundColor = following ? "rgba(59,130,246,0.3)" : "rgba(59,130,246,0.15)"));
+    };
+
+    renderPanel(fallbackStops);
   };
 
   const updateInfoPanelPosition = () => {
@@ -541,7 +562,7 @@ const BerlinMap = () => {
     const url =
       `https://v6.bvg.transport.rest/radar?north=${b.getNorth()}&west=${b.getWest()}` +
       `&south=${b.getSouth()}&east=${b.getEast()}` +
-      `&duration=30&frames=30&results=1024`;
+      `&duration=30&frames=999&results=1024`;
     const r = await globalThis.fetch(url);
     const j = await r.json();
     apply(j.movements);
