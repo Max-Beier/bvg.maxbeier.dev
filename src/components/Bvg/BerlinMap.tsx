@@ -20,9 +20,13 @@ interface State {
   lerpToLng: number;
   apiProgress: number;
   trail: L.Polyline | null;
+  trailHistory: LatLng[];
+  lastTrailTime: number;
+  trailFade: boolean;
 }
 
 const LERP_MS = 1000;
+const TRAIL_FADE_MS = 15000;
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 const PRODUCT_COLORS: Record<string, string> = {
@@ -123,32 +127,28 @@ const BerlinMap = () => {
     if (pts.length < 2) return 0;
     const totalLen = pathLength(pts);
     if (totalLen === 0) return 0;
-    // Distanz vom Start bis zum nächstgelegenen Punkt kumuliert
     let distSoFar = 0;
-    let closestDist = Infinity;
-    for (let i = 0; i < pts.length; i++) {
+    for (let i = 0; i < pts.length - 1; i++) {
       const d = loc.distanceTo(pts[i]);
-      if (d < closestDist) {
-        closestDist = d;
+      const segLen = pts[i].distanceTo(pts[i + 1]);
+      if (d <= segLen * 0.5) {
+        return (distSoFar + d) / totalLen;
       }
-      if (i > 0) {
-        distSoFar += pts[i - 1].distanceTo(pts[i]);
-      }
+      distSoFar += segLen;
     }
-    return distSoFar / totalLen;
+    return 1;
   };
 
   // Trail fuer einen Marker erstellen/aktualisieren
-  const makeTrail = (s: State, pts: LatLng[], color: string): L.Polyline => {
-    if (pts.length < 2) return L.polyline([]);
-    // Dunkler Hintergrund -> leicht leuchtende Trails
-    return L.polyline(pts, {
+  const makeTrail = (_s: State, pts: LatLng[], color: string): L.Polyline => {
+    const trail = L.polyline(pts, {
       color,
       weight: 3,
       opacity: 0.6,
       lineCap: "round",
       lineJoin: "round",
     }).addTo(mapInstance);
+    return trail;
   };
 
   const make = (
@@ -178,6 +178,9 @@ const BerlinMap = () => {
     lerpToLng: 0,
     apiProgress: p,
     trail: null,
+    trailHistory: [],
+    lastTrailTime: 0,
+    trailFade: true,
   });
 
   const setMapStyle = (style: MapStyle) => {
@@ -199,10 +202,14 @@ const BerlinMap = () => {
         const elapsed = now - s.lerpStart;
         const t = Math.min(1, elapsed / LERP_MS);
         const eased = t * (2 - t);
-        // Lerp die tatsächliche lat/lng Position
         const lat = lerp(s.lerpFromLat, s.lerpToLat, eased);
         const lng = lerp(s.lerpFromLng, s.lerpToLng, eased);
         s.marker.setLatLng([lat, lng]);
+
+        // Trail auch waehrend lerp aufnehmen
+        s.trailHistory.push(L.latLng(lat, lng));
+        s.lastTrailTime = now;
+
         if (t >= 1) {
           s.progress = s.apiProgress;
           s.lerping = false;
@@ -211,10 +218,31 @@ const BerlinMap = () => {
         s.progress += s.speed * 16;
         if (s.progress > 1) s.progress -= 1;
         if (s.progress < 0) s.progress += 1;
+
+        const pos = posAt(s.polyline, s.frameTimes, s.progress);
+        if (pos) {
+          s.marker.setLatLng(pos);
+          s.trailHistory.push(pos);
+          s.lastTrailTime = now;
+        }
       }
 
-      const pos = posAt(s.polyline, s.frameTimes, s.progress);
-      if (pos) s.marker.setLatLng(pos);
+      // Trail aktualisieren mit fade-away
+      if (s.trail && s.trailHistory.length >= 2) {
+        // Begrenze auf letzte Punkte basierend auf fade-time
+        const maxPts = Math.ceil(TRAIL_FADE_MS / 16);
+        if (s.trailHistory.length > maxPts) {
+          s.trailHistory = s.trailHistory.slice(-maxPts);
+        }
+        s.trail.setLatLngs(s.trailHistory);
+
+        // Opacity basierend auf Alter des Trails
+        if (s.trailFade) {
+          const age = now - s.lastTrailTime;
+          const fade = Math.max(0, 1 - age / TRAIL_FADE_MS);
+          s.trail.setStyle({ opacity: 0.2 + fade * 0.4 });
+        }
+      }
     });
     rafId = states.size > 0 ? requestAnimationFrame(loop) : null;
   };
@@ -256,13 +284,9 @@ const BerlinMap = () => {
 
         // Stelle sicher dass jeder Marker einen Trail hat
         if (!s.trail) {
-          s.trail = makeTrail(s, pts, color);
-        } else if (!same) {
-          // Pfad geaendert -> Trail aktualisieren
-          s.trail.setLatLngs(pts);
+          s.trail = makeTrail(s, [], color);
         }
 
-        // Smooth Lerp: Marker gleitet von aktueller Position zur API-Position
         // Smooth Lerp: Marker gleitet von aktueller lat/lng zur neuen API-Position
         const cur = s.marker.getLatLng();
         const newLoc = L.latLng(m.location.latitude, m.location.longitude);
@@ -280,10 +304,10 @@ const BerlinMap = () => {
           s.marker.setIcon(getIcon(np, nn));
           s.lineProduct = np;
           s.lineName = nn;
-          // Farbe geaendert -> Trail neu
+          // Farbe geaendert -> Trail neu, History bleibt
           const newColor = getTrailColor(np);
           if (s.trail) s.trail.remove();
-          s.trail = makeTrail(s, pts, newColor);
+          s.trail = makeTrail(s, s.trailHistory, newColor);
         }
         s.direction = m.direction;
         s.marker.setPopupContent(`<b>${m.line.name}</b><br>${m.direction}`);
@@ -303,7 +327,8 @@ const BerlinMap = () => {
           ft,
           ep,
         );
-        s.trail = makeTrail(s, pts, color);
+        s.trail = makeTrail(s, [], color);
+        s.trailHistory = [];
         states.set(tid, s);
       }
     });
@@ -344,6 +369,39 @@ const BerlinMap = () => {
     "font-weight:900;font-size:18px;line-height:1;border:none;cursor:pointer;" +
     "width:44px;height:44px;display:flex;align-items:center;justify-content:center;" +
     "transition:background-color .15s,color .15s,transform .1s;";
+
+  // Geolocation marker
+  let locationMarker: L.Marker | null = null;
+  let locationCircle: L.CircleMarker | null = null;
+
+  const createLocationMarker = () => {
+    const locIcon = L.divIcon({
+      className: "",
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+      html: `<div style="width:16px;height:16px;border-radius:50%;background:#3B82F6;border:3px solid #fff;box-shadow:0 0 8px rgba(59,130,246,0.6);"></div>`,
+    });
+    locationMarker = L.marker([0, 0], { icon: locIcon, zIndexOffset: 1000 }).addTo(mapInstance);
+    locationCircle = L.circleMarker([0, 0], {
+      radius: 12,
+      color: "#3B82F6",
+      fillColor: "#3B82F6",
+      fillOpacity: 0.15,
+      weight: 0,
+      interactive: false,
+    }).addTo(mapInstance);
+  };
+
+  const updateLocation = (pos: GeolocationPosition) => {
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    const latlng = [lat, lng] as L.LatLngExpression;
+    if (locationMarker) locationMarker.setLatLng(latlng);
+    if (locationCircle) locationCircle.setLatLng(latlng);
+    if (pos.coords.accuracy) {
+      locationCircle?.setRadius(Math.min(pos.coords.accuracy / 10, 30));
+    }
+  };
 
   onMount(() => {
     mapInstance = L.map("map", {
@@ -446,6 +504,55 @@ const BerlinMap = () => {
     });
     container.appendChild(styleBtn);
 
+    // Location button unten links
+    const locOffSvg = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>`;
+    const locOnSvg = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>`;
+    let locActive = false;
+    const locBtn = document.createElement("button");
+    const locOff = "#666";
+    locBtn.style.cssText = btnBase + "position:absolute;bottom:16px;left:16px;z-index:1000;background:" + locOff + ";color:#fff;border-radius:22px;";
+    locBtn.innerHTML = locOffSvg;
+    const toggleLocActive = () => {
+      locActive = !locActive;
+      if (locActive) {
+        locBtn.style.backgroundColor = COLORS.blue;
+        locBtn.innerHTML = locOnSvg;
+        if (!locationMarker) createLocationMarker();
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              updateLocation(pos);
+              mapInstance.flyTo([pos.coords.latitude, pos.coords.longitude], 15, { duration: 1 });
+            },
+            () => { /* no access */ },
+            { enableHighAccuracy: true },
+          );
+          navigator.geolocation.watchPosition(updateLocation);
+        }
+      } else {
+        locBtn.style.backgroundColor = locOff;
+        locBtn.innerHTML = locOffSvg;
+        if (locationMarker) locationMarker.remove();
+        if (locationCircle) locationCircle.remove();
+        locationMarker = null;
+        locationCircle = null;
+      }
+    };
+    locBtn.addEventListener("mouseenter", () => {
+      locBtn.style.backgroundColor = locActive ? COLORS.dark : "#888";
+      locBtn.style.transform = "scale(1.05)";
+    });
+    locBtn.addEventListener("mouseleave", () => {
+      locBtn.style.backgroundColor = locActive ? COLORS.blue : locOff;
+      locBtn.style.transform = "scale(1)";
+    });
+    locBtn.addEventListener("click", () => {
+      locBtn.style.transform = "scale(0.95)";
+      setTimeout(() => (locBtn.style.transform = "scale(1)"), 100);
+      toggleLocActive();
+    });
+    container.appendChild(locBtn);
+
     pullData();
     const iv = setInterval(pullData, 12_000);
 
@@ -454,6 +561,9 @@ const BerlinMap = () => {
       if (rafId != null) cancelAnimationFrame(rafId);
       styleBtn.remove();
       zoomWrap.remove();
+      locBtn.remove();
+      if (locationMarker) locationMarker.remove();
+      if (locationCircle) locationCircle.remove();
       states.forEach((s) => {
         if (s.trail) s.trail.remove();
       });
