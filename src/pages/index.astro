@@ -2,22 +2,57 @@
 import BerlinMap from "../components/Bvg/BerlinMap";
 ---
 
-<html lang="en">
+<html lang="de">
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="generator" content={Astro.generator} />
-  </head><description></description>
-  <title>BVG Map</title>
 
+    <title>BVG Fahrplanauskunft — Live-Verkehr in Berlin</title>
+    <meta name="description" content="Verfolgen Sie U-Bahn, S-Bahn, Bus, Tram und Fähre der BVG in Echtzeit auf einer interaktiven Karte von Berlin." />
+    <meta name="robots" content="index, follow" />
+
+    <link rel="canonical" href="https://bvg.maxbeier.dev/" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="BVG Fahrplanauskunft — Live-Verkehr in Berlin" />
+    <meta property="og:description" content="Verfolgen Sie U-Bahn, S-Bahn, Bus, Tram und Fähre der BVG in Echtzeit auf einer interaktiven Karte von Berlin." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://bvg.maxbeier.dev/" />
+    <meta property="og:locale" content="de_DE" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="BVG Fahrplanauskunft — Live-Verkehr in Berlin" />
+    <meta name="twitter:description" content="Verfolgen Sie U-Bahn, S-Bahn, Bus, Tram und Fähre der BVG in Echtzeit auf einer interaktiven Karte von Berlin." />
+
+    <!-- Structured Data -->
+    <script type="application/ld+json" set:html>
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "BVG Fahrplanauskunft",
+        "description": "Live-Verkehrskarte für BVG U-Bahn, S-Bahn, Bus, Tram und Fähre in Berlin",
+        "url": "https://bvg.maxbeier.dev/",
+        "applicationCategory": "UtilityApplication",
+        "operatingSystem": "Web",
+        "browserRequirements": "Requires JavaScript",
+        "inLanguage": "de",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "EUR"
+        }
+      }
+    </script>
+  </head>
   <body>
     <main
       class="w-screen h-screen flex justify-center items-center bg-transparent overflow-hidden select-none"
+      role="main"
     >
       <BerlinMap client:only />
     </main>
   </body>
-
-
 </html>
