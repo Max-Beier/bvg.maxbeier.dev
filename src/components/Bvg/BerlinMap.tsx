@@ -229,18 +229,21 @@ const BerlinMap = () => {
       return new Date(time) >= new Date();
     });
     const frames = s.frames || [];
-    const origin = frames[0]?.origin?.name ?? "";
-    const dest = frames[0]?.destination?.name ?? "";
+    // Strip "(Berlin)" from origin/dest names for display
+    const stripBerlin = (name: string) => name.replace(/\s*\(Berlin\)\s*/g, "").trim();
+    const origin = stripBerlin(frames[0]?.origin?.name ?? "");
+    const dest = stripBerlin(frames[0]?.destination?.name ?? "");
 
-    // Deduplicate: remove destination stop (already shown as → direction)
+    // Deduplicate: remove stops that match the direction (end station) — shown as → direction
     const uniqueStops = stops.filter((st: any) => {
       const name = st.stop?.name ?? "";
-      return name !== dest && name !== s.direction;
+      return name !== s.direction;
     });
-    // Also remove if the last stop name contains the destination or direction
+    // Remove last stop if it's the destination
     if (uniqueStops.length > 0 && dest) {
       const last = uniqueStops[uniqueStops.length - 1]?.stop?.name ?? "";
-      if (last.includes(dest) || dest.includes(last) || last.includes(s.direction)) {
+      const lastClean = stripBerlin(last);
+      if (lastClean === dest) {
         uniqueStops.pop();
       }
     }
@@ -266,7 +269,7 @@ const BerlinMap = () => {
           <span style="color:rgba(255,255,255,0.35);font-size:11px;margin-left:auto;">${s.operator}</span>
           <button class="info-close" style="width:26px;height:26px;border-radius:13px;border:none;cursor:pointer;background:rgba(255,255,255,0.1);color:#fff;font-size:15px;display:flex;align-items:center;justify-content:center;font-weight:900;line-height:1;flex-shrink:0;margin-left:6px;">&times;</button>
         </div>
-        <div style="color:rgba(255,255,255,0.7);font-size:13px;font-weight:600;margin-bottom:12px;">
+        <div style="color:rgba(255,255,255,0.7);font-size:13px;font-weight:600;margin-bottom:6px;">
           &rarr; ${s.direction}
         </div>
         ${origin || dest ? `<div style="display:flex;align-items:center;gap:8px;color:rgba(255,255,255,0.4);font-size:12px;font-weight:600;margin-bottom:14px;">
