@@ -308,6 +308,8 @@ const BerlinMap = () => {
 
   const updateInfoPanelPosition = () => {
     if (!infoPanelVisible || !infoPanelTarget || !mapInstance || !infoPanel) return;
+    // On mobile panel is fixed at bottom — no positioning needed
+    if (window.innerWidth < 600) return;
     const point = infoPanelTarget.marker.getLatLng();
     const containerPoint = mapInstance.latLngToContainerPoint(point);
     const containerRect = mapInstance.getContainer().getBoundingClientRect();
@@ -516,6 +518,11 @@ const BerlinMap = () => {
     "transition:background-color .15s,color .15s,transform .1s;";
 
   onMount(() => {
+    const isEmbed = new URLSearchParams(window.location.search).has("embed");
+    let styleBtn!: HTMLButtonElement;
+    let zoomWrap!: HTMLDivElement;
+    let locBtn!: HTMLButtonElement;
+
     mapInstance = L.map("map", {
       center: [52.5162, 13.3777],
       zoom: 12,
@@ -533,8 +540,10 @@ const BerlinMap = () => {
     const container = mapInstance.getContainer();
     container.style.position = "relative";
 
-    // Zoom controls
-    const zoomWrap = document.createElement("div");
+    if (isEmbed) {
+      // Embed mode — no UI, just map + markers
+    } else {
+    zoomWrap = document.createElement("div");
     zoomWrap.style.cssText =
       "position:absolute;top:16px;left:16px;z-index:1000;display:flex;flex-direction:column;gap:2px;";
 
@@ -568,7 +577,7 @@ const BerlinMap = () => {
     container.appendChild(zoomWrap);
 
     // Style-Toggle
-    const styleBtn = document.createElement("button");
+    styleBtn = document.createElement("button");
     styleBtn.style.cssText = btnBase + "position:absolute;top:16px;right:16px;z-index:1000;background:" + COLORS.yellow + ";color:" + COLORS.dark + ";border-radius:22px;overflow:hidden;";
     styleBtn.innerHTML = "";
 
@@ -611,15 +620,31 @@ const BerlinMap = () => {
     });
     container.appendChild(styleBtn);
 
+    const isMobile = () => window.innerWidth < 600;
+
     // Info panel overlay
     infoPanel = document.createElement("div");
-    infoPanel.style.cssText =
-      "position:absolute;top:16px;left:50%;transform:translateX(-50%);z-index:1000;" +
-      "width:320px;max-height:80vh;overflow-y:auto;" +
-      "background:rgba(20,20,20,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);" +
-      "border:1px solid rgba(255,255,255,0.1);border-radius:16px;" +
-      "font-family:system-ui,-apple-system,sans-serif;color:#fff;" +
-      "display:none;box-shadow:0 8px 32px rgba(0,0,0,0.4);";
+    const applyPanelStyle = (panel: HTMLDivElement) => {
+      if (isMobile()) {
+        panel.style.cssText =
+          "position:fixed;bottom:0;left:0;right:0;z-index:1001;" +
+          "width:100%;max-height:70vh;overflow-y:auto;" +
+          "background:rgba(20,20,20,0.96);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);" +
+          "border-top:1px solid rgba(255,255,255,0.1);border-radius:16px 16px 0 0;" +
+          "font-family:system-ui,-apple-system,sans-serif;color:#fff;" +
+          "display:none;box-shadow:0 -4px 24px rgba(0,0,0,0.5);" +
+          "padding-bottom:env(safe-area-inset-bottom);";
+      } else {
+        panel.style.cssText =
+          "position:absolute;top:16px;left:50%;transform:translateX(-50%);z-index:1000;" +
+          "width:320px;max-height:80vh;overflow-y:auto;" +
+          "background:rgba(20,20,20,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);" +
+          "border:1px solid rgba(255,255,255,0.1);border-radius:16px;" +
+          "font-family:system-ui,-apple-system,sans-serif;color:#fff;" +
+          "display:none;box-shadow:0 8px 32px rgba(0,0,0,0.4);";
+      }
+    };
+    applyPanelStyle(infoPanel);
     container.appendChild(infoPanel);
     L.DomEvent.disableClickPropagation(infoPanel);
     L.DomEvent.disableScrollPropagation(infoPanel);
@@ -628,7 +653,7 @@ const BerlinMap = () => {
     const locOffSvg = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>`;
     const locOnSvg = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>`;
     let locActive = false;
-    const locBtn = document.createElement("button");
+    locBtn = document.createElement("button");
     const locOff = "#666";
     locBtn.style.cssText = btnBase + "position:absolute;bottom:16px;left:16px;z-index:1000;background:" + locOff + ";color:#fff;border-radius:22px;";
     locBtn.innerHTML = locOffSvg;
@@ -674,6 +699,7 @@ const BerlinMap = () => {
       toggleLocActive();
     });
     container.appendChild(locBtn);
+    }
 
     pullData();
     const iv = setInterval(pullData, 12_000);
@@ -686,10 +712,12 @@ const BerlinMap = () => {
     onCleanup(() => {
       clearInterval(iv);
       if (rafId != null) cancelAnimationFrame(rafId);
-      styleBtn.remove();
-      zoomWrap.remove();
-      locBtn.remove();
-      infoPanel?.remove();
+      if (!isEmbed) {
+        styleBtn.remove();
+        zoomWrap.remove();
+        locBtn.remove();
+        infoPanel?.remove();
+      }
       if (locationMarker) locationMarker.remove();
       if (locationCircle) locationCircle.remove();
       states.forEach((s) => {
