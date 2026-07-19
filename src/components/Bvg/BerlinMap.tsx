@@ -232,7 +232,20 @@ const BerlinMap = () => {
     const origin = frames[0]?.origin?.name ?? "";
     const dest = frames[0]?.destination?.name ?? "";
 
-    const stopRows = stops.slice(0, 5).map((st: any) => {
+    // Deduplicate: remove destination stop (already shown as → direction)
+    const uniqueStops = stops.filter((st: any) => {
+      const name = st.stop?.name ?? "";
+      return name !== dest && name !== s.direction;
+    });
+    // Also remove if the last stop name contains the destination or direction
+    if (uniqueStops.length > 0 && dest) {
+      const last = uniqueStops[uniqueStops.length - 1]?.stop?.name ?? "";
+      if (last.includes(dest) || dest.includes(last) || last.includes(s.direction)) {
+        uniqueStops.pop();
+      }
+    }
+
+    const stopRows = uniqueStops.map((st: any) => {
       const name = st.stop?.name ?? "";
       const arr = fmtTime(st.arrival ?? st.departure ?? null);
       const delay = fmtDelay(st.arrivalDelay ?? st.departureDelay ?? 0);
@@ -511,6 +524,11 @@ const BerlinMap = () => {
         states.delete(s.tripId);
       }
     });
+
+    // Refresh info panel if following and panel is open
+    if (infoFollowState && infoPanelVisible && infoPanelTarget === infoFollowState && infoPanel) {
+      openInfoPanel(infoFollowState);
+    }
 
     if (!rafId && states.size > 0) rafId = requestAnimationFrame(loop);
   };
